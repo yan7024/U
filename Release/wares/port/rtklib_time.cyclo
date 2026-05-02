@@ -1,0 +1,4 @@
+../wares/port/rtklib_time.c:4:8:rtklib_gettime	1
+../wares/port/rtklib_time.c:12:8:rtklib_get_gpst_seconds	1
+../wares/port/rtklib_time.c:18:10:rtklib_get_tick_ms	1
+../wares/port/rtklib_time.c:23:6:rtklib_delay_ms	1

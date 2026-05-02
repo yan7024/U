@@ -1,0 +1,6 @@
+../wares/src/lambda.c:28:12:LD	72	static
+../wares/src/lambda.c:74:13:reduction	128	static
+../wares/src/lambda.c:91:12:search	128	static
+../wares/src/lambda.c:163:12:lambda	64	static
+../wares/src/lambda.c:195:12:lambda_reduction	32	static
+../wares/src/lambda.c:228:12:lambda_search	48	static

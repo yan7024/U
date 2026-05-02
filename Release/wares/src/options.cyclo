@@ -1,0 +1,11 @@
+../wares/src/options.c:190:13:chop	5
+../wares/src/options.c:382:13:buff2sysopts	13
+../wares/src/options.c:238:15:searchopt	4
+../wares/src/options.c:255:12:str2opt	10
+../wares/src/options.c:272:12:opt2str	8
+../wares/src/options.c:292:12:opt2buf	3
+../wares/src/options.c:314:12:loadopts	10
+../wares/src/options.c:359:12:saveopts	5
+../wares/src/options.c:487:13:resetsysopts	1
+../wares/src/options.c:520:13:getsysopts	4
+../wares/src/options.c:537:13:setsysopts	14

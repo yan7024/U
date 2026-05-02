@@ -1,0 +1,10 @@
+../wares/port/rtklib_serial.c:22:6:rtklib_serial_reset_usart1_ring	8	static
+../wares/port/rtklib_serial.c:32:6:rtklib_serial_set_read_port	0	static
+../wares/port/rtklib_serial.c:37:6:rtklib_serial_feed_usart1_isr	12	static
+../wares/port/rtklib_serial.c:58:6:rtklib_serial_feed_usart3_isr	4	static
+../wares/port/rtklib_serial.c:71:10:rtklib_serial_get_rx1_total	0	static
+../wares/port/rtklib_serial.c:76:10:rtklib_serial_get_rx2_total	0	static
+../wares/port/rtklib_serial.c:81:10:rtklib_serial_get_ubx_sync_total	0	static
+../wares/port/rtklib_serial.c:86:10:rtklib_serial_get_rtcm_preamble_total	0	static
+../wares/port/rtklib_serial.c:91:10:rtklib_serial_get_rtcm_preamble_uart1_total	0	static
+../wares/port/rtklib_serial.c:96:5:rtklib_uart_read	20	static

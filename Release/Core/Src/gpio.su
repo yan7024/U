@@ -1,0 +1,2 @@
+../Core/Src/gpio.c:42:6:MX_GPIO_Init	16	static
+../Core/Src/gpio.c:53:6:MX_User_LED_Init	32	static

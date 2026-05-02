@@ -1,0 +1,6 @@
+../wares/src/lambda.c:28:12:LD	9
+../wares/src/lambda.c:74:13:reduction	16
+../wares/src/lambda.c:91:12:search	28
+../wares/src/lambda.c:163:12:lambda	5
+../wares/src/lambda.c:195:12:lambda_reduction	6
+../wares/src/lambda.c:228:12:lambda_search	4

@@ -1,0 +1,4 @@
+../wares/src/rtcm2.c:31:12:obsindex	5
+../wares/src/rtcm2.c:139:12:decode_type17	2
+../wares/src/rtcm2.c:52:12:decode_type1.isra	5
+../wares/src/rtcm2.c:371:12:decode_rtcm2	65

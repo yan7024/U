@@ -1,0 +1,5 @@
+../wares/src/pntpos.c:58:15:gettgd	24	static
+../wares/src/pntpos.c:179:12:ionocorr	104	static
+../wares/src/pntpos.c:221:12:tropcorr	72	static
+../wares/src/pntpos.c:368:12:estpos	1200	static
+../wares/src/pntpos.c:608:12:pntpos	4040	static

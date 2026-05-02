@@ -1,0 +1,4 @@
+../wares/src/rtcm2.c:31:12:obsindex	12	static
+../wares/src/rtcm2.c:139:12:decode_type17	528	static
+../wares/src/rtcm2.c:52:12:decode_type1.isra	64	static
+../wares/src/rtcm2.c:371:12:decode_rtcm2	208	static

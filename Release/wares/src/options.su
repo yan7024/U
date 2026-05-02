@@ -1,0 +1,11 @@
+../wares/src/options.c:190:13:chop	8	static
+../wares/src/options.c:382:13:buff2sysopts	1080	static
+../wares/src/options.c:238:15:searchopt	16	static
+../wares/src/options.c:255:12:str2opt	48	static
+../wares/src/options.c:272:12:opt2str	56	static
+../wares/src/options.c:292:12:opt2buf	16	static
+../wares/src/options.c:314:12:loadopts	2088	static
+../wares/src/options.c:359:12:saveopts	2072	static
+../wares/src/options.c:487:13:resetsysopts	16	static
+../wares/src/options.c:520:13:getsysopts	16	static
+../wares/src/options.c:537:13:setsysopts	104	static

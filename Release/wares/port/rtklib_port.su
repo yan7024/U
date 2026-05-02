@@ -1,0 +1,15 @@
+../wares/port/rtklib_port.c:58:13:uart1_txq_drain_blocking	8	static
+../wares/port/rtklib_port.c:78:6:rtklib_port_allocator_reset	0	static
+../wares/port/rtklib_port.c:83:7:rtklib_port_malloc	0	static
+../wares/port/rtklib_port.c:89:7:rtklib_port_calloc	0	static
+../wares/port/rtklib_port.c:95:7:rtklib_port_realloc	0	static
+../wares/port/rtklib_port.c:101:6:rtklib_port_free	0	static
+../wares/port/rtklib_port.c:106:7:rtklib_malloc	0	static
+../wares/port/rtklib_port.c:111:7:rtklib_calloc	0	static
+../wares/port/rtklib_port.c:116:7:rtklib_realloc	0	static
+../wares/port/rtklib_port.c:121:6:rtklib_free	0	static
+../wares/port/rtklib_port.c:126:6:rtklib_port_uart3_send	0	static
+../wares/port/rtklib_port.c:131:6:rtklib_port_uart2_send	0	static
+../wares/port/rtklib_port.c:136:6:rtklib_port_debug_send	0	static
+../wares/port/rtklib_port.c:145:6:rtklib_port_uart1_send	32	static
+../wares/port/rtklib_port.c:162:5:_write	0	static
