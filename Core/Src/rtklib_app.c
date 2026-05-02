@@ -52,6 +52,69 @@ static uint32_t s_rx2_last_chg_ms;
 static uint8_t s_rx2_seen_once;
 static uint8_t s_uart1_fallback_38400_done;
 static uint32_t s_rover_ubx_idle_ticks;
+static int s_mon_eph_gps = -1;
+static int s_mon_eph_any_gps = -1; /* GPS eph slots filled (ignore toe vs rover time) */
+static uint32_t s_ubx_eph_decode_total; /* input_ubx ret==2: RXM-SFRBX decoded GPS/QZS broadcast ephem */
+static char s_rtk_fail_snip[72];
+
+static int gtime_gpst_plausible(gtime_t t);
+
+static void refresh_mon_nav_metrics(const nav_t *nav, gtime_t tr)
+{
+    int k, prn, c = 0, any = 0;
+
+    if (nav == NULL || !gtime_gpst_plausible(tr)) {
+        s_mon_eph_gps = -1;
+        s_mon_eph_any_gps = -1;
+        return;
+    }
+    for (k = 0; k < nav->nmax; k++) {
+        if (nav->eph[k].sat <= 0) continue;
+        if (satsys(nav->eph[k].sat, &prn) != SYS_GPS) continue;
+        if (prn < 1 || prn > NSATGPS) continue;
+        any++;
+        if (fabs(timediff(nav->eph[k].toe, tr)) <= MAXDTOE + 3600.0) c++;
+    }
+    s_mon_eph_any_gps = any;
+    s_mon_eph_gps = c;
+}
+
+static void snip_fail_msg(char *dst, size_t dstsz, const char *src)
+{
+    size_t i, j;
+
+    if (dstsz == 0) return;
+    if (src == NULL || src[0] == '\0') {
+        dst[0] = '\0';
+        return;
+    }
+    for (i = 0, j = 0; src[i] != '\0' && j + 1 < dstsz; i++) {
+        unsigned char c = (unsigned char)src[i];
+
+        if (c == '\r' || c == '\n' || c == '\t') continue;
+        dst[j++] = (char)((c == ',' || c == ';') ? '|' : c);
+    }
+    dst[j] = '\0';
+}
+
+/*
+ * RTCM type 1019 fills rtcm->nav.eph[]; rtkpos/pntpos read s_rover->nav only.
+ * Many NTRIP streams carry GPS ephemeris — merge into rover nav when present.
+ */
+static void merge_rtcm_gps_eph_into_rover(void)
+{
+    int i;
+
+    if (s_base == NULL || s_rover == NULL) return;
+    for (i = 0; i < s_base->nav.n && i < s_rover->nav.nmax; i++) {
+        int sat = s_base->nav.eph[i].sat;
+
+        if (sat <= 0) continue;
+        if (satsys(sat, NULL) != SYS_GPS) continue;
+        if (sat > s_rover->nav.nmax) continue;
+        s_rover->nav.eph[sat - 1] = s_base->nav.eph[i];
+    }
+}
 
 static int dbl_finite_small(double x)
 {
@@ -232,7 +295,11 @@ static void process_rover(void)
         if (rtklib_uart_read(&b, 1) != 1) break;
         got++;
         ret = input_ubx(s_rover, b);
-        if (ret == 1) s_have_rover_obs = 1u;
+        if (ret == 1) {
+            s_have_rover_obs = 1u;
+        } else if (ret == 2) {
+            s_ubx_eph_decode_total++;
+        }
     }
     /*
      * If the UART goes quiet mid-frame (truncated/stale stream), input_ubx stays
@@ -279,13 +346,40 @@ static void process_base(void)
         ret = input_rtcm3(s_base, b);
         if (ret == 1) s_have_base_obs = 1u;
     }
+    merge_rtcm_gps_eph_into_rover();
+}
+
+/*
+ * rtkpos() counts rover/base by scanning obs from the start: all rcv==1, then all rcv==2.
+ * sortobs() sorts by *time* first; if rover/base epochs differ by >DTTOL (~1 s is common),
+ * the earlier receiver block comes first and nu becomes 0 → pntpos(obs,0,…) fails → rtkOk=0.
+ * RTKLIB convention here: order by receiver, then satellite (time last for stability).
+ */
+static int cmp_obs_for_rtkpos(const void *p, const void *q)
+{
+    const obsd_t *a = (const obsd_t *)p;
+    const obsd_t *b = (const obsd_t *)q;
+    double tt;
+
+    if (a->rcv != b->rcv) {
+        return (int)a->rcv - (int)b->rcv;
+    }
+    if (a->sat != b->sat) {
+        return (int)a->sat - (int)b->sat;
+    }
+    tt = timediff(a->time, b->time);
+    if (fabs(tt) > DTTOL) {
+        return (tt < 0.0) ? -1 : 1;
+    }
+    return 0;
 }
 
 static void solve_once(void)
 {
     obsd_t obs_mix[MAXOBS * 2];
-    int i, n = 0;
+    int i, j, n = 0;
     double dt;
+    gtime_t tr, tb;
 
     if (!s_have_rover_obs || !s_have_base_obs) return;
     if (s_rover->obs.n <= 0 || s_base->obs.n <= 0) {
@@ -293,16 +387,16 @@ static void solve_once(void)
         return;
     }
 
-    {
-        gtime_t tr = earliest_plausible_obs_time(&s_rover->obs);
-        gtime_t tb = earliest_plausible_obs_time(&s_base->obs);
+    tr = earliest_plausible_obs_time(&s_rover->obs);
+    tb = earliest_plausible_obs_time(&s_base->obs);
 
-        if (!gtime_gpst_plausible(tr) || !gtime_gpst_plausible(tb)) {
-            s_epoch_dt_ms = -8;
-            return;
-        }
-        dt = timediff(tr, tb);
+    if (!gtime_gpst_plausible(tr) || !gtime_gpst_plausible(tb)) {
+        s_epoch_dt_ms = -8;
+        return;
     }
+    refresh_mon_nav_metrics(&s_rover->nav, tr);
+
+    dt = timediff(tr, tb);
     fold_gps_week_dt(&dt);
     if (dt < 0.0) dt = -dt;
 
@@ -341,20 +435,27 @@ static void solve_once(void)
     }
     if (n <= 0) return;
 
-    {
-        obs_t omix;
-        omix.n = n;
-        omix.nmax = MAXOBS * 2;
-        omix.data = obs_mix;
-        (void)sortobs(&omix);
-        n = omix.n;
+    qsort(obs_mix, (size_t)n, sizeof(obs_mix[0]), cmp_obs_for_rtkpos);
+    for (i = 0, j = 0; i < n; i++) {
+        if (obs_mix[i].sat != obs_mix[j].sat || obs_mix[i].rcv != obs_mix[j].rcv ||
+            timediff(obs_mix[i].time, obs_mix[j].time) != 0.0) {
+            j++;
+            obs_mix[j] = obs_mix[i];
+        }
     }
+    n = j + 1;
     if (n <= 0) return;
+
+    s_rtk->neb = 0;
+    s_rtk->errbuf[0] = '\0';
 
     s_rtkpos_call_total++;
     if (rtkpos(s_rtk, obs_mix, n, &s_rover->nav)) {
         s_rtkpos_ok_total++;
+        s_rtk_fail_snip[0] = '\0';
         publish_solution(&s_rtk->sol);
+    } else {
+        snip_fail_msg(s_rtk_fail_snip, sizeof(s_rtk_fail_snip), s_rtk->errbuf);
     }
 }
 
@@ -453,7 +554,7 @@ void rtklib_rover_ubx_link_train(uint32_t link_baud)
 void rtklib_process(void)
 {
     uint32_t now;
-    char mon[240];
+    char mon[384];
     int n;
 
     now = HAL_GetTick();
@@ -481,7 +582,7 @@ void rtklib_process(void)
     if ((now - s_last_status_ms) >= RTK_MON_INTERVAL_MS) {
         s_last_status_ms = now;
         n = snprintf(mon, sizeof(mon),
-                     "$PRTKMON,rx1=%lu,rx2=%lu,ubxSync=%lu,rtcmP2=%lu,rtcmP1=%lu,rovN=%d,basN=%d,epochDtMs=%ld,rtkCall=%lu,rtkOk=%lu\r\n",
+                     "$PRTKMON,rx1=%lu,rx2=%lu,ubxSync=%lu,rtcmP2=%lu,rtcmP1=%lu,rovN=%d,basN=%d,epochDtMs=%ld,ephG=%d,ephA=%d,m1019=%lu,ubxEph=%lu,rtkCall=%lu,rtkOk=%lu,fail=%s\r\n",
                      (unsigned long)rtklib_serial_get_rx1_total(),
                      (unsigned long)rtklib_serial_get_rx2_total(),
                      (unsigned long)rtklib_serial_get_ubx_sync_total(),
@@ -490,8 +591,13 @@ void rtklib_process(void)
                      s_rover->obs.n,
                      s_base->obs.n,
                      (long)s_epoch_dt_ms,
+                     s_mon_eph_gps,
+                     s_mon_eph_any_gps,
+                     (unsigned long)((s_base != NULL) ? s_base->nmsg3[19] : 0u),
+                     (unsigned long)s_ubx_eph_decode_total,
                      (unsigned long)s_rtkpos_call_total,
-                     (unsigned long)s_rtkpos_ok_total);
+                     (unsigned long)s_rtkpos_ok_total,
+                     (s_rtk_fail_snip[0] != '\0') ? s_rtk_fail_snip : "-");
         if (n > 0 && n < (int)sizeof(mon)) {
 #if RTK_DEBUG_ENABLE
             rtklib_port_debug_send((const uint8_t *)mon, (uint16_t)n);

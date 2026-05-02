@@ -6,7 +6,7 @@
 
 /*
  * USART1: PA10 RX rover UBX in; PA9 TX UBX CFG to rover (+ debug if RTK_DEBUG_PORT_UART1=1).
- * USART2: PA2/PA3 — ST-Link VCP; RTK text normally off this port (RX sunk). Boot uses uart2_send once for sanity check.
+ * USART2: PA2/PA3 — ST-Link VCP; RX sunk; debug lines mirrored here when RTK_DEBUG_PORT_UART1=0 (see rtklib_port_debug_send).
  * USART3: PC4 TX / PC5 RX (L476RCT LQFP64) — USB-TTL: $PRTKMON / $HB / $PRTK + RTCM when RTK_DEBUG_PORT_UART1=0.
  */
 

@@ -276,7 +276,11 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         
         /* geometric distance */
         if ((r=geodist(rs+i*6,rr,e))<=0.0) continue;
-        
+
+        /* iter==0 skips iono/trop block below but still uses these in v[]/var[] */
+        dion = dtrp = 0.0;
+        vion = vtrp = 0.0;
+
         if (iter>0) {
             /* test elevation mask */
             if (satazel(pos,e,azel+i*2)<opt->elmin) continue;

@@ -108,7 +108,11 @@ extern int init_rtcm(rtcm_t *rtcm)
     /* reallocate memory for observation and ephemeris buffer */
     {
 #if defined(RTKLIB_EMBEDDED)
-        int ne = 8; /* keep tiny ephemeris cache on MCU */
+        /*
+         * decode_type1019 stores at nav.eph[sat-1] with sat=1..NSATGPS.
+         * ne=8 was buffer overrun for PRN>8 and silently broke ephemeris + merging.
+         */
+        int ne = NSATGPS;
         int ng = 1; /* no GLONASS in embedded profile */
 #else
         int ne = MAXSAT * 2;
@@ -124,7 +128,7 @@ extern int init_rtcm(rtcm_t *rtcm)
     }
     rtcm->obs.n=0;
 #if defined(RTKLIB_EMBEDDED)
-    rtcm->nav.n=8;
+    rtcm->nav.n = NSATGPS;
 #else
     rtcm->nav.n=MAXSAT*2;
 #endif

@@ -107,14 +107,11 @@ int main(void)
   MX_USART3_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  /*
-   * Full boot line on application UART + USART2 (ST-Link). Open Virtual COM at 115200.
-   */
+  /* $BOOT via debug_send → USART3 + USART2 mirror (ST-Link COM at 115200 for SSCOM). */
   {
     static const char k_boot[] = "\r\n$BOOT,MCU_OK\r\n";
     const uint16_t blen = (uint16_t)(sizeof(k_boot) - 1u);
     rtklib_port_debug_send((const uint8_t *)k_boot, blen);
-    rtklib_port_uart2_send((const uint8_t *)k_boot, blen);
   }
   /* Init RTK before RX IRQ: init_raw uses ~700 B stack; nested USART ISR + flood risks overflow */
   rtklib_init();

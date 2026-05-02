@@ -5,8 +5,7 @@
 
 /*
  * Debug text ($PRTKMON / $HB / $PRTK):
- *  0 — USART3 PC4 TX / PC5 RX (L476 LQFP64; Cube default) + USB-TTL (115200). RTCM/NTRIP on same UART.
- *      USART2 PA2/PA3 stays for ST-Link only (no RTK output there).
+ *  0 — USART3 PC4/PC5: CH340 + RTCM/NTRIP + debug text; USART2 ST-Link mirrors same debug (115200).
  *  1 — USART1 PA9 (mixes with rover UBX — rarely useful).
  */
 #ifndef RTK_DEBUG_PORT_UART1
