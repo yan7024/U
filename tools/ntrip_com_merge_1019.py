@@ -29,6 +29,7 @@ MCU 固件默认按单点解（SPP）输出 $PRTK 经纬度；本脚本侧重「
     --rinex brdc1250.26n ^
     --caster 114.111.30.20 --port 8002 ^
     --user qx4839 --password-env NTRIP_PASSWORD ^
+    （与上一行等价：--password-e NTRIP_PASSWORD）
     --mount RTCM33_GGB ^
     --com COM7 --baud 115200 --eph-interval 10
 
@@ -55,7 +56,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 _TOOLS = pathlib.Path(__file__).resolve().parent
 if str(_TOOLS) not in sys.path:
@@ -87,6 +88,94 @@ def _basic_auth(user: str, password: str) -> str:
     return f"Basic {token}"
 
 
+def _ntrip_failure_hints(host: str, port: int, exc: BaseException) -> str:
+    """Console hints when TCP/NTRIP fails (timeout, refused, etc.)."""
+    msg = str(exc).lower()
+    lines = [
+        "",
+        "排查建议（与 MCU/串口无关，仅 caster 网络侧）：",
+        f"  • 当前: {host!r} TCP/{port} — App 里 8003=CGCS2000，8002=WGS84；超时时可试: --port 8002",
+        "  • 本机防火墙/公司网是否拦出站 8002/8003；可换手机热点对比。",
+        "  • 账号是否在有效期内；用户名/密码与 App「复制」一致（建议 --password-env NTRIP_PASSWORD）。",
+        "  • 勿写错参数名：须为 --password-env 或 --password-e，后面跟「环境变量名」如 NTRIP_PASSWORD，",
+        "    不是字面量 PASSWORD。",
+        "  • 仍失败：加大超时 如 --connect-timeout 60",
+    ]
+    if "timed out" in msg or "timeout" in msg:
+        lines.insert(
+            2,
+            "  • 若为「timed out」：多为到该 IP 的路由被拦或 caster 暂时不可达；",
+        )
+    if "响应头" in str(exc) or "完整 HTTP" in str(exc) or "断开" in str(exc):
+        lines.append(
+            "  • 若为「收到响应头之前断开」：脚本会自动再试 HTTP/1.0；亦可手动加 --http10，"
+            "或换挂载点 --mount AUTO，并与 App 核对账号是否仍有效。"
+        )
+    return "\n".join(lines)
+
+
+def _tcp_connect(host: str, port: int, timeout: float, ipv4_only: bool) -> socket.socket:
+    """Create TCP socket; optionally force IPv4 (some environments IPv6 path breaks)."""
+    if ipv4_only:
+        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        last: Optional[OSError] = None
+        for _fam, _typ, _proto, _canon, sa in infos:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            try:
+                s.connect(sa)
+                return s
+            except OSError as exc:
+                last = exc
+                try:
+                    s.close()
+                except OSError:
+                    pass
+        if last:
+            raise last
+        raise OSError(f"无法解析或连接 {host!r}:{port}")
+    return socket.create_connection((host, port), timeout=timeout)
+
+
+def _build_ntrip_get(mp: str, host: str, user: str, password: str, http10: bool) -> bytes:
+    """NTRIP GET request bytes. http10=True matches many legacy Chinese casters."""
+    auth = _basic_auth(user, password)
+    if http10:
+        # Host：部分 caster（含 ICY 响应）要求 HTTP/1.0 仍带 Host，否则只回一行就掐连接
+        req_lines = [
+            f"GET /{mp} HTTP/1.0",
+            f"Host: {host}",
+            "User-Agent: NTRIP ntrip_com_merge_1019",
+            "Ntrip-Version: Ntrip/1.0",
+            f"Authorization: {auth}",
+            "",
+            "",
+        ]
+    else:
+        req_lines = [
+            f"GET /{mp} HTTP/1.1",
+            f"Host: {host}",
+            "User-Agent: NTRIP ntrip_com_merge_1019",
+            "Accept: */*",
+            "Connection: keep-alive",
+            "Ntrip-Version: Ntrip/1.0",
+            f"Authorization: {auth}",
+            "",
+            "",
+        ]
+    return "\r\n".join(req_lines).encode("ascii")
+
+
+def _ntrip_first_line_ok(first_line: str) -> bool:
+    """HTTP 200 / ICY 200 OK（不少 caster 用 Shoutcast 风格 ICY 头）。"""
+    s = first_line.strip().upper()
+    if "ICY 200 OK" in s:
+        return True
+    if s.startswith("HTTP/") and " 200" in s:
+        return True
+    return False
+
+
 def ntrip_open_stream(
     host: str,
     port: int,
@@ -94,28 +183,18 @@ def ntrip_open_stream(
     user: str,
     password: str,
     timeout: float,
-) -> socket.socket:
-    """TCP + NTRIP GET；返回已跳过 HTTP/ICY 头的阻塞 socket。"""
+    *,
+    http10: bool = False,
+    ipv4_only: bool = True,
+) -> Tuple[socket.socket, bytes]:
+    """TCP + NTRIP GET；返回 (socket, 响应头之后的二进制前缀，常为 RTCM 首包)。"""
     mp = mountpoint.strip()
     if not mp:
         raise ValueError("mountpoint 不能为空（例如 RTCM32GRCpro）")
 
-    # HTTP/1.1 + keep-alive：避免部分 caster 在「Connection: close」下很快结束流传输，
-    # 造成 COM 断续、MCU 侧 rx2 停涨 / basN 被空闲逻辑清空。
-    req_lines = [
-        f"GET /{mp} HTTP/1.1",
-        f"Host: {host}",
-        "User-Agent: NTRIP ntrip_com_merge_1019",
-        "Accept: */*",
-        "Connection: keep-alive",
-        "Ntrip-Version: Ntrip/1.0",
-        f"Authorization: {_basic_auth(user, password)}",
-        "",
-        "",
-    ]
-    payload = "\r\n".join(req_lines).encode("ascii")
+    payload = _build_ntrip_get(mp, host, user, password, http10=http10)
 
-    sock = socket.create_connection((host, port), timeout=timeout)
+    sock = _tcp_connect(host, port, timeout, ipv4_only=ipv4_only)
     try:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     except (AttributeError, OSError):
@@ -126,23 +205,42 @@ def ntrip_open_stream(
 
     header = bytearray()
     while b"\r\n\r\n" not in header:
-        chunk = sock.recv(1)
+        chunk = sock.recv(4096)
         if not chunk:
-            sock.close()
-            raise ConnectionError("NTRIP：连接在收到响应头之前断开")
+            # ICY 响应可能分包：首包只有「ICY 200 OK\r\n」，再等一小段时间取 icy-* 与空行
+            icy_prefix = header[:64].upper()
+            if b"ICY 200 OK" in icy_prefix and b"\r\n\r\n" not in header:
+                sock.settimeout(min(8.0, timeout + 2.0))
+                chunk = sock.recv(4096)
+                sock.settimeout(timeout)
+            if not chunk:
+                sock.close()
+                hint = (
+                    "NTRIP：服务端在返回完整响应头（需含结尾空行 \\r\\n\\r\\n）之前关闭了连接。"
+                    "若片段里已有「ICY 200 OK」：多为挂载点/账号被拒或 caster 要求固定客户端；"
+                    "请换 --mount AUTO、核对 App 密码与有效期；亦可换 --port 8003 试。"
+                )
+                if len(header) > 0:
+                    peek = header[:400].decode("latin-1", errors="replace").replace("\r", "\\r")
+                    raise ConnectionError(f"{hint} 已收到片段: {peek!r}")
+                raise ConnectionError(hint)
         header.extend(chunk)
         if len(header) > 65536:
             sock.close()
             raise ConnectionError("NTRIP：响应头过长")
 
-    head_txt = header.decode("latin-1", errors="replace")
+    sep = header.find(b"\r\n\r\n")
+    head_blob = bytes(header[:sep])
+    stream_prefix = bytes(header[sep + 4 :])
+
+    head_txt = head_blob.decode("latin-1", errors="replace")
     first = head_txt.split("\r\n", 1)[0].strip()
-    if "200" not in first:
+    if not _ntrip_first_line_ok(first):
         sock.close()
         raise ConnectionError(f"NTRIP 失败（检查账号/挂载点/密码）: {first!r}")
 
     sock.settimeout(300.0)
-    return sock
+    return sock, stream_prefix
 
 
 def load_1019_batch(rinex: Path, latest_per_prn: bool, max_age_hours: float) -> bytes:
@@ -182,8 +280,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument(
         "--rinex",
         type=Path,
-        required=True,
-        help="当天 GPS 广播 NAV：v2（如仓库根目录 brdc1250.26n）或 v3 混合 NAV（*MN.rnx），可选 .gz",
+        default=None,
+        help="可选：本地 GPS 广播 NAV，用于额外补发 RTCM1019；不填则只转发挂载点自带 RTCM3/1019",
     )
     ap.add_argument(
         "--caster",
@@ -206,13 +304,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     g.add_argument("--password", "-p", help="密码（慎用：会留在 shell 历史）")
     g.add_argument(
         "--password-env",
+        "--password-e",
         metavar="VAR",
-        help="从环境变量读密码，例如 NTRIP_PASSWORD",
+        dest="password_env",
+        help="从环境变量读密码，例如 NTRIP_PASSWORD（--password-e 为同义别名，防误写）",
     )
     ap.add_argument("--com", required=True)
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--eph-interval", type=float, default=10.0, help="每隔多少秒注入一轮 1019")
-    ap.add_argument("--connect-timeout", type=float, default=15.0)
+    ap.add_argument(
+        "--connect-timeout",
+        type=float,
+        default=35.0,
+        help="TCP 连接 + 读响应头超时（秒）；caster 远或网络差时可加大到 60",
+    )
     ap.add_argument("--reload-rinex", action="store_true", help="每次注入前重新读 RINEX（便于热替换文件）")
     ap.add_argument("--latest-per-prn", action="store_true", default=True)
     ap.add_argument("--no-latest-per-prn", action="store_false", dest="latest_per_prn")
@@ -221,6 +326,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         type=float,
         default=48.0,
         help="丢弃 TOC 早于此刻超过该小时数的星历；0=不限制（brdc 偏旧时可用）",
+    )
+    ap.add_argument(
+        "--http10",
+        action="store_true",
+        help="强制使用 HTTP/1.0 请求（不加则先尝试 HTTP/1.1，失败再自动试 HTTP/1.0）",
+    )
+    ap.add_argument(
+        "--dual-stack",
+        action="store_true",
+        help="不做 IPv4 限定（默认只连 IPv4；个别网络可试此项）",
     )
     args = ap.parse_args(argv)
 
@@ -245,12 +360,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     signal.signal(signal.SIGINT, handle_sig)
     signal.signal(signal.SIGTERM, handle_sig)
 
-    try:
-        eph_blob = load_1019_batch(args.rinex, args.latest_per_prn, args.max_age_hours)
-    except SystemExit:
-        raise
-    except Exception as exc:
-        raise SystemExit(str(exc)) from exc
+    eph_blob = b""
+    if args.rinex is not None:
+        try:
+            eph_blob = load_1019_batch(args.rinex, args.latest_per_prn, args.max_age_hours)
+        except SystemExit:
+            raise
+        except Exception as exc:
+            raise SystemExit(str(exc)) from exc
 
     def open_serial():
         try:
@@ -305,28 +422,106 @@ def main(argv: Optional[List[str]] = None) -> int:
     writer_th = threading.Thread(target=serial_writer, daemon=False)
     writer_th.start()
 
-    print(
-        f"已加载 1019 批次 {len(eph_blob)} 字节；连接 NTRIP {args.caster}:{args.port}/{args.mount} …",
-        flush=True,
-    )
+    if eph_blob:
+        print(
+            f"已加载本地 1019 批次 {len(eph_blob)} 字节；连接 NTRIP {args.caster}:{args.port}/{args.mount} …",
+            flush=True,
+        )
+    else:
+        print(
+            f"不使用本地 RINEX；仅转发 NTRIP {args.caster}:{args.port}/{args.mount} 到 {args.com}，等待挂载点自带 1019 …",
+            flush=True,
+        )
 
     # 启动前先灌一轮星历，便于 MCU 尽快有 eph（经队列，由 serial_writer 写出）
-    enqueue_tx(eph_blob)
+    if eph_blob:
+        enqueue_tx(eph_blob)
+
+    rtcm_scan = bytearray()
+    rtcm_frames = 0
+    rtcm_1019 = 0
+    last_rtcm_report = time.monotonic()
+
+    def scan_rtcm3_types(data: bytes) -> None:
+        nonlocal rtcm_frames, rtcm_1019, last_rtcm_report
+
+        rtcm_scan.extend(data)
+        while len(rtcm_scan) >= 6:
+            if rtcm_scan[0] != 0xD3:
+                del rtcm_scan[0]
+                continue
+            length = ((rtcm_scan[1] & 0x03) << 8) | rtcm_scan[2]
+            frame_len = length + 6
+            if length > 1023:
+                del rtcm_scan[0]
+                continue
+            if len(rtcm_scan) < frame_len:
+                break
+            if length >= 2:
+                msg_type = (rtcm_scan[3] << 4) | (rtcm_scan[4] >> 4)
+                rtcm_frames += 1
+                if msg_type == 1019:
+                    rtcm_1019 += 1
+            del rtcm_scan[:frame_len]
+        now = time.monotonic()
+        if now - last_rtcm_report >= 5.0:
+            last_rtcm_report = now
+            print(f"RTCM转发: frames={rtcm_frames}, m1019={rtcm_1019}", flush=True)
+
+    shown_conn_hints = [False]
+
+    def ntrip_connect_sock():
+        """Try HTTP/1.1 first unless --http10; auto-fallback to HTTP/1.0 on handshake failure."""
+        ipv4_only = not args.dual_stack
+        if args.http10:
+            return ntrip_open_stream(
+                args.caster,
+                args.port,
+                args.mount,
+                args.user,
+                pw,
+                args.connect_timeout,
+                http10=True,
+                ipv4_only=ipv4_only,
+            )
+        try:
+            return ntrip_open_stream(
+                args.caster,
+                args.port,
+                args.mount,
+                args.user,
+                pw,
+                args.connect_timeout,
+                http10=False,
+                ipv4_only=ipv4_only,
+            )
+        except ConnectionError:
+            print(
+                "NTRIP：HTTP/1.1 握手未完成，自动改用 HTTP/1.0 重试一次…",
+                flush=True,
+            )
+            return ntrip_open_stream(
+                args.caster,
+                args.port,
+                args.mount,
+                args.user,
+                pw,
+                args.connect_timeout,
+                http10=True,
+                ipv4_only=ipv4_only,
+            )
 
     def ntrip_loop() -> None:
         backoff = 1.0
         while not stop.is_set():
             try:
-                sock = ntrip_open_stream(
-                    args.caster,
-                    args.port,
-                    args.mount,
-                    args.user,
-                    pw,
-                    args.connect_timeout,
-                )
+                sock, stream_prefix = ntrip_connect_sock()
                 backoff = 1.0
+                shown_conn_hints[0] = False
                 print("NTRIP 已连接，转发差分数据…", flush=True)
+                if stream_prefix:
+                    scan_rtcm3_types(stream_prefix)
+                    enqueue_tx(stream_prefix)
                 while not stop.is_set():
                     try:
                         chunk = sock.recv(8192)
@@ -334,13 +529,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                         continue
                     if not chunk:
                         break
+                    scan_rtcm3_types(chunk)
                     enqueue_tx(chunk)
                 sock.close()
                 print("NTRIP 断开，将重连…", flush=True)
             except OSError as exc:
                 print(f"NTRIP 错误: {exc}；{backoff:.0f}s 后重试", flush=True)
+                if not shown_conn_hints[0]:
+                    print(_ntrip_failure_hints(args.caster, args.port, exc), flush=True)
+                    shown_conn_hints[0] = True
             except Exception as exc:
                 print(f"NTRIP 错误: {exc}；{backoff:.0f}s 后重试", flush=True)
+                if not shown_conn_hints[0]:
+                    print(_ntrip_failure_hints(args.caster, args.port, exc), flush=True)
+                    shown_conn_hints[0] = True
             time.sleep(backoff)
             backoff = min(backoff * 2, 60.0)
 
@@ -350,7 +552,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     next_inj = time.monotonic()
     try:
         while not stop.is_set():
-            if time.monotonic() >= next_inj:
+            if eph_blob and time.monotonic() >= next_inj:
                 try:
                     blob = (
                         load_1019_batch(args.rinex, args.latest_per_prn, args.max_age_hours)

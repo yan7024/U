@@ -138,7 +138,7 @@ void rtklib_port_debug_send(const uint8_t *data, uint16_t len)
 #if RTK_DEBUG_PORT_UART1
     rtklib_port_uart1_send(data, len);
 #else
-    /* USART3: CH340 + u-center / NTRIP; mirror same text to USART2 ST-Link VCP for SSCOM logs */
+    /* Default pure F9P SPP: USART3 carries debug text; USART2 mirrors it for ST-Link VCP logs. */
     rtklib_port_uart3_send(data, len);
     rtklib_port_uart2_send(data, len);
 #endif
