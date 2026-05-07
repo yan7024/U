@@ -15,8 +15,8 @@
 ../wares/src/solution.c:1132:12:readsolstat	72	static
 ../wares/src/solution.c:1236:12:outnmea_rmc	400	static
 ../wares/src/solution.c:1281:12:outnmea_gga	360	static
-../wares/src/solution.c:1315:12:outnmea_gsa	616	static
-../wares/src/solution.c:1359:12:outnmea_gsv	208	static
+../wares/src/solution.c:1315:12:outnmea_gsa	776	static
+../wares/src/solution.c:1359:12:outnmea_gsv	232	static
 ../wares/src/solution.c:1403:12:outprcopts	456	static
 ../wares/src/solution.c:1493:12:outsolheads	160	static
 ../wares/src/solution.c:1580:12:outsols	664	static

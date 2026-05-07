@@ -36,18 +36,21 @@
 #define DONT_USE_MALLOC 1
 #define NFREQ 1
 #define NEXOBS 0
-#define MAXOBS 12                       /* epoch cap; RTK needs ≥5 common sats, 12 gives headroom */
+#define MAXOBS 14                       /* L476 RAM 紧：勿盲目加大；需更多星再换大 SRAM MCU */
 #define MAXRAWLEN 2048
 #define MAXPRGOPT 64
 #define TRACE_LEVEL 0
 #define NO_SYSTEMTIME 1
 
-/* force single-system build on STM32 to shrink raw_t/rtcm_t/rtk_t */
+/*
+ * 星座裁剪：Galileo 会使 MAXSAT≈68，raw_t.subfrm/rtk_t.ssat 等让 L476 96K RAM 链接溢出。
+ * 默认仅 GPS（MAXSAT=32）；若芯片 SRAM ≥128K 级可设 MCU_EMB_SPP_GPS_GAL=1 或 -DMCU_EMB_SPP_GPS_GAL=1。
+ */
 #ifdef ENAGLO
 #undef ENAGLO
 #endif
-#ifdef ENAGAL
-#undef ENAGAL
+#ifdef ENACMP
+#undef ENACMP
 #endif
 #ifdef ENAQZS
 #undef ENAQZS
@@ -55,8 +58,14 @@
 #ifdef ENAIRN
 #undef ENAIRN
 #endif
-#ifdef ENACMP
-#undef ENACMP
+#ifdef ENAGAL
+#undef ENAGAL
+#endif
+#ifndef MCU_EMB_SPP_GPS_GAL
+#define MCU_EMB_SPP_GPS_GAL 0
+#endif
+#if MCU_EMB_SPP_GPS_GAL
+#define ENAGAL
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -174,8 +183,11 @@ extern "C" {
 
 #define MINPRNGPS   1                   /* min satellite PRN number of GPS */
 #if defined(RTKLIB_EMBEDDED)
-/* 24 → MAXSAT=24 saves ~25% vs 32 on nav/rtcm/rtk; fits STM32L476 96K+32K split (PRN>24 ignored) */
-#define MAXPRNGPS   24
+/*
+ * F9P RAWX 可含 GPS PRN 25–32；裁成 24 会在 ublox.c 里 satno()==0 直接丢星。
+ * MAXSAT=32 增加少量 nav/rtcm 静态缓冲（RAW_NAV_EPH_SLOTS 等），换与现代 GPS 星座一致。
+ */
+#define MAXPRNGPS   32
 #else
 #define MAXPRNGPS   32                  /* max satellite PRN number of GPS */
 #endif
@@ -300,8 +312,17 @@ extern "C" {
 #else
 #define DTTOL       0.025               /* tolerance of time difference (s) */
 #endif
+#if defined(RTKLIB_EMBEDDED)
+/*
+ * MCU SPP：接收机时间 / 注入 1019 与广播 Toe 常有数小时偏差；桌面默认 7200s 过严。
+ * 放宽后轨道误差会变大，优先保证「能出解」；需要精度时再改回较严窗口。
+ */
+#define MAXDTOE     43200.0             /* GPS broadcast toe vs obs: ~12 h (s) */
+#define MAXDTOE_QZS 43200.0             /* max time difference to QZSS Toe (s) */
+#else
 #define MAXDTOE     7200.0              /* max time difference to GPS Toe (s) */
 #define MAXDTOE_QZS 7200.0              /* max time difference to QZSS Toe (s) */
+#endif
 #define MAXDTOE_GAL 14400.0             /* max time difference to Galileo Toe (s) */
 #define MAXDTOE_CMP 21600.0             /* max time difference to BeiDou Toe (s) */
 #define MAXDTOE_GLO 1800.0              /* max time difference to GLONASS Toe (s) */
@@ -1658,6 +1679,31 @@ EXPORT int update_cmr (raw_t *raw, rtksvr_t *svr, obs_t *obs);
 EXPORT int input_oem4  (raw_t *raw, uint8_t data);
 EXPORT int input_oem3  (raw_t *raw, uint8_t data);
 EXPORT int input_ubx   (raw_t *raw, uint8_t data);
+
+/* UBX 轻量诊断（STM32 等嵌入端）：ublox.c 内计数，经 snapshot 读取，勿直接改库内 static */
+typedef struct {
+    uint32_t frm_ck_ok;    /* 通过 UBX 校验的完整帧 */
+    uint32_t frm_ck_err;
+    uint32_t frm_len_err;  /* 声明长度 > MAXRAWLEN */
+    uint32_t ok_rawx;      /* 0x0215 且校验通过 */
+    uint32_t ok_sfrbx;     /* 0x0213 且校验通过 */
+    uint32_t ok_nav_pvt;   /* 0x0107 */
+    uint32_t ok_nav_timegps; /* 0x0120 */
+    uint32_t sfrbx_gps;    /* RXM-SFRBX 且 sys=GPS 的条数 */
+    uint32_t eph_dec;      /* decode_eph 成功写入新星历 (return 2) */
+    uint32_t dfrm_fail;    /* decode_frame 在 decode_eph/ion 中失败 */
+    uint32_t sf_id_err;    /* decode_nav: 子帧 id 非 1..5 */
+    uint32_t cnav_unsup;   /* decode_nav: 碰到 IS-CNAV 前导，未走 LNAV */
+    uint16_t last_err_type; /* 最近 ck/len 错时的 UBX 16-bit 类+ID */
+    uint16_t last_err_len;
+    uint8_t last_gps_sat;  /* 最近一条 GPS SFRBX 的 sat 号 */
+    uint8_t last_gps_prn;  /* 1..32 */
+    uint8_t last_sf_id;    /* 1..5 */
+    uint8_t sf_mask;       /* 对 last_gps_prn：bit0=SF1, bit1=SF2, bit2=SF3 已收齐标记 */
+} rtklib_ubx_diag_t;
+
+EXPORT void rtklib_ubx_diag_snapshot(rtklib_ubx_diag_t *d);
+
 EXPORT int input_ss2   (raw_t *raw, uint8_t data);
 EXPORT int input_cres  (raw_t *raw, uint8_t data);
 EXPORT int input_stq   (raw_t *raw, uint8_t data);

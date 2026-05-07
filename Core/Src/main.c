@@ -38,7 +38,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+/*
+ * Live SPP（默认）：USART1 = F9P UBX RAWX；USART3 = PC 侧 RTCM（NTRIP/1019 等）→ 仅合并星历/数据，解算为单点 $PRTK 经纬度。
+ * PC 端广播星历：仓库根目录 brdc1250.26n（tools 脚本 --rinex 指向该文件或你换新的 *26n / *MN.rnx）。
+ * RINEX 回放：仅在编译选项中加 MCU_REPLAY_RTCM_OBS=1，并断开 F9P USART1；见 tools/replay_rtcm_to_mcu.py。
+ */
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -113,12 +117,16 @@ int main(void)
     const uint16_t blen = (uint16_t)(sizeof(k_boot) - 1u);
     rtklib_port_debug_send((const uint8_t *)k_boot, blen);
   }
-  /* Init RTK before RX IRQ: init_raw uses ~700 B stack; nested USART ISR + flood risks overflow */
+  /* Init rtklib / raw+rtcm before RX IRQ: init_raw uses ~700 B stack; nested USART ISR + flood risks overflow */
   rtklib_init();
   rtklib_uart_start_rx_it();
-  /* F9P: assume 115200 link first; rtklib_process retries 38400 if rx1 stays 0 */
+#if MCU_REPLAY_RTCM_OBS
+  /* 回放模式：观测来自 USART3 RTCM，勿对 F9P 发 CFG（USART1 应断开或静默） */
+#else
+  /* F9P：默认 115200；rx1 长期无字节时会尝试 38400 链路训练再回到 115200 */
   rtklib_rover_ubx_link_train(115200u);
-  /* Independent of main-loop RTK work: periodic ISR proves MCU alive + UART TX path */
+#endif
+  /* Independent of main-loop positioning work: periodic ISR proves MCU alive + UART TX path */
   (void)HAL_TIM_Base_Start_IT(&htim2);
 
   /* USER CODE END 2 */

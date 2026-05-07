@@ -8,4 +8,4 @@
 ../wares/src/options.c:359:12:saveopts	5
 ../wares/src/options.c:487:13:resetsysopts	1
 ../wares/src/options.c:520:13:getsysopts	4
-../wares/src/options.c:537:13:setsysopts	14
+../wares/src/options.c:537:13:setsysopts	13

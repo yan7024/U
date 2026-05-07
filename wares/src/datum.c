@@ -208,11 +208,120 @@ extern void pppos(rtk_t *rtk, const obsd_t *obs, int n, const nav_t *nav)
     (void)rtk; (void)obs; (void)n; (void)nav;
 }
 
+/* decode GPS/QZSS LNAV subframe 1 ------------------------------------------*/
+static int decode_lnav_subfrm1(const uint8_t *buff, eph_t *eph)
+{
+    double tow, toc;
+    int i = 48, week, iodc0, iodc1;
+
+    week      = (int)getbitu(buff, i, 10); i += 10;
+    eph->code = (int)getbitu(buff, i,  2); i +=  2;
+    eph->sva  = (int)getbitu(buff, i,  4); i +=  4;
+    eph->svh  = (int)getbitu(buff, i,  6); i +=  6;
+    iodc0     = (int)getbitu(buff, i,  2); i +=  2;
+    eph->flag = (int)getbitu(buff, i,  1); i += 88; /* L2 P flag + reserved */
+    eph->tgd[0] = getbits(buff, i, 8) * P2_31; i += 8;
+    iodc1     = (int)getbitu(buff, i,  8); i +=  8;
+    toc       = getbitu(buff, i, 16) * 16.0; i += 16;
+    eph->f2   = getbits(buff, i,  8) * P2_55; i +=  8;
+    eph->f1   = getbits(buff, i, 16) * P2_43; i += 16;
+    eph->f0   = getbits(buff, i, 22) * P2_31;
+
+    tow = getbitu(buff, 24, 17) * 6.0;
+    eph->iodc = (iodc0 << 8) | iodc1;
+    eph->week = adjgpsweek(week);
+    eph->toc = gpst2time(eph->week, toc);
+    eph->ttr = gpst2time(eph->week, tow);
+
+    return 1;
+}
+
+/* decode GPS/QZSS LNAV subframe 2 ------------------------------------------*/
+static int decode_lnav_subfrm2(const uint8_t *buff, eph_t *eph)
+{
+    double sqrtA;
+    int i = 48;
+
+    eph->iode = (int)getbitu(buff, i,  8);              i +=  8;
+    eph->crs  =      getbits(buff, i, 16) * P2_5;       i += 16;
+    eph->deln =      getbits(buff, i, 16) * P2_43 * SC2RAD; i += 16;
+    eph->M0   =      getbits(buff, i, 32) * P2_31 * SC2RAD; i += 32;
+    eph->cuc  =      getbits(buff, i, 16) * P2_29;      i += 16;
+    eph->e    =      getbitu(buff, i, 32) * P2_33;      i += 32;
+    eph->cus  =      getbits(buff, i, 16) * P2_29;      i += 16;
+    sqrtA     =      getbitu(buff, i, 32) * P2_19;      i += 32;
+    eph->toes =      getbitu(buff, i, 16) * 16.0;       i += 16;
+    eph->fit  =      getbitu(buff, i,  1) ? 0.0 : 4.0;
+
+    eph->A = sqrtA * sqrtA;
+    eph->toe = gpst2time(eph->week, eph->toes);
+
+    return 1;
+}
+
+/* decode GPS/QZSS LNAV subframe 3 ------------------------------------------*/
+static int decode_lnav_subfrm3(const uint8_t *buff, eph_t *eph)
+{
+    int i = 48, iode;
+
+    eph->cic  = getbits(buff, i, 16) * P2_29;           i += 16;
+    eph->OMG0 = getbits(buff, i, 32) * P2_31 * SC2RAD;  i += 32;
+    eph->cis  = getbits(buff, i, 16) * P2_29;           i += 16;
+    eph->i0   = getbits(buff, i, 32) * P2_31 * SC2RAD;  i += 32;
+    eph->crc  = getbits(buff, i, 16) * P2_5;            i += 16;
+    eph->omg  = getbits(buff, i, 32) * P2_31 * SC2RAD;  i += 32;
+    eph->OMGd = getbits(buff, i, 24) * P2_43 * SC2RAD;  i += 24;
+    iode      = (int)getbitu(buff, i, 8);               i +=  8;
+    eph->idot = getbits(buff, i, 14) * P2_43 * SC2RAD;
+
+    if (eph->iode != iode) return 0;
+
+    return 1;
+}
+
+static gtime_t time_near_ref(gtime_t t, gtime_t ref)
+{
+    double dt;
+
+    if (ref.time == 0) return t;
+    dt = timediff(t, ref);
+    if      (dt < -302400.0) t = timeadd(t,  604800.0);
+    else if (dt >= 302400.0) t = timeadd(t, -604800.0);
+    return t;
+}
+
 extern int decode_frame(const uint8_t *buff, eph_t *eph, alm_t *alm,
                         double *ion, double *utc)
 {
-    (void)buff; (void)eph; (void)alm; (void)ion; (void)utc;
-    return 0;
+    int id1, id2, id3;
+
+    (void)alm;
+
+    if (buff == NULL) return 0;
+
+    /*
+     * Minimal embedded restore: GPS/QZSS LNAV ephemeris from subframes 1/2/3.
+     * Other optional decode paths stay stubbed to keep the L476 build small.
+     */
+    if (eph == NULL) {
+        if (ion) memset(ion, 0, sizeof(double) * 8u);
+        if (utc) memset(utc, 0, sizeof(double) * 8u);
+        return 0;
+    }
+
+    id1 = (int)getbitu(buff,      43, 3);
+    id2 = (int)getbitu(buff + 30, 43, 3);
+    id3 = (int)getbitu(buff + 60, 43, 3);
+    if (id1 != 1 || id2 != 2 || id3 != 3) return 0;
+
+    if (!decode_lnav_subfrm1(buff,      eph)) return 0;
+    if (!decode_lnav_subfrm2(buff + 30, eph)) return 0;
+    if (!decode_lnav_subfrm3(buff + 60, eph)) return 0;
+
+    eph->toe = time_near_ref(eph->toe, eph->ttr);
+    eph->toc = time_near_ref(eph->toc, eph->ttr);
+
+    return 1;
 }
 
 extern int test_glostr(const uint8_t *buff)

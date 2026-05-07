@@ -1,8 +1,8 @@
 ../wares/src/rtcm.c:66:12:init_rtcm	968	static
-../wares/src/rtcm.c:142:13:free_rtcm	16	static
-../wares/src/rtcm.c:165:12:input_rtcm2	24	static
-../wares/src/rtcm.c:277:12:input_rtcm3	24	static
-../wares/src/rtcm.c:310:12:input_rtcm2f	16	static
-../wares/src/rtcm.c:329:12:input_rtcm3f	16	static
-../wares/src/rtcm.c:348:12:gen_rtcm2	8	static
-../wares/src/rtcm.c:372:12:gen_rtcm3	48	static
+../wares/src/rtcm.c:146:13:free_rtcm	16	static
+../wares/src/rtcm.c:169:12:input_rtcm2	24	static
+../wares/src/rtcm.c:281:12:input_rtcm3	24	static
+../wares/src/rtcm.c:314:12:input_rtcm2f	16	static
+../wares/src/rtcm.c:333:12:input_rtcm3f	16	static
+../wares/src/rtcm.c:352:12:gen_rtcm2	8	static
+../wares/src/rtcm.c:376:12:gen_rtcm3	48	static

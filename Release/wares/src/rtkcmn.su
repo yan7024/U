@@ -120,7 +120,7 @@
 ../wares/src/rtkcmn.c:3532:12:reppaths	120	static
 ../wares/src/rtkcmn.c:3565:15:geodist	40	static
 ../wares/src/rtkcmn.c:3584:15:satazel	144	static
-../wares/src/rtkcmn.c:3608:13:dops	1000	static
+../wares/src/rtkcmn.c:3608:13:dops	1256	static
 ../wares/src/rtkcmn.c:3641:15:ionmodel	168	static
 ../wares/src/rtkcmn.c:3688:15:ionmapf	16	static
 ../wares/src/rtkcmn.c:3704:15:ionppp	88	static

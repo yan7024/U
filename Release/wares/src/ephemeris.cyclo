@@ -1,6 +1,6 @@
 ../wares/src/ephemeris.c:461:16:selgeph	11
 ../wares/src/ephemeris.c:483:16:selseph	7
-../wares/src/ephemeris.c:422:15:seleph	19
+../wares/src/ephemeris.c:422:15:seleph	20
 ../wares/src/ephemeris.c:289:13:deq	2
 ../wares/src/ephemeris.c:149:13:alm2pos	7
 ../wares/src/ephemeris.c:191:15:eph2clk	1

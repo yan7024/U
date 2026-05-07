@@ -13,6 +13,6 @@
 ../wares/src/ephemeris.c:531:12:ephpos	112	static
 ../wares/src/ephemeris.c:604:12:satpos_ssr.constprop	352	static
 ../wares/src/ephemeris.c:717:12:satpos	136	static
-../wares/src/ephemeris.c:760:13:satposs	552	static
+../wares/src/ephemeris.c:760:13:satposs	624	static
 ../wares/src/ephemeris.c:821:13:setseleph	0	static
 ../wares/src/ephemeris.c:839:12:getseleph	0	static

@@ -11,5 +11,5 @@
 ../wares/port/rtklib_port.c:126:6:rtklib_port_uart3_send	0	static
 ../wares/port/rtklib_port.c:131:6:rtklib_port_uart2_send	0	static
 ../wares/port/rtklib_port.c:136:6:rtklib_port_debug_send	0	static
-../wares/port/rtklib_port.c:145:6:rtklib_port_uart1_send	32	static
-../wares/port/rtklib_port.c:162:5:_write	0	static
+../wares/port/rtklib_port.c:147:6:rtklib_port_uart1_send	32	static
+../wares/port/rtklib_port.c:164:5:_write	0	static

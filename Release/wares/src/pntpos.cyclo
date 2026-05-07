@@ -1,5 +1,5 @@
 ../wares/src/pntpos.c:58:15:gettgd	10
 ../wares/src/pntpos.c:179:12:ionocorr	7
 ../wares/src/pntpos.c:221:12:tropcorr	5
-../wares/src/pntpos.c:368:12:estpos	86
-../wares/src/pntpos.c:608:12:pntpos	38
+../wares/src/pntpos.c:380:12:estpos	87
+../wares/src/pntpos.c:620:12:pntpos	38

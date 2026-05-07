@@ -10,6 +10,6 @@
 ../wares/port/rtklib_port.c:121:6:rtklib_free	1
 ../wares/port/rtklib_port.c:126:6:rtklib_port_uart3_send	6
 ../wares/port/rtklib_port.c:131:6:rtklib_port_uart2_send	6
-../wares/port/rtklib_port.c:136:6:rtklib_port_debug_send	6
-../wares/port/rtklib_port.c:145:6:rtklib_port_uart1_send	6
-../wares/port/rtklib_port.c:162:5:_write	1
+../wares/port/rtklib_port.c:136:6:rtklib_port_debug_send	9
+../wares/port/rtklib_port.c:147:6:rtklib_port_uart1_send	6
+../wares/port/rtklib_port.c:164:5:_write	1

@@ -12,6 +12,19 @@
 #define RTK_DEBUG_PORT_UART1 0
 #endif
 
+/* 1 = USART3 RTCM 观测回放进 rover（tools/replay_rtcm_to_mcu.py）；默认 0 = F9P UBX @ USART1 */
+#ifndef MCU_REPLAY_RTCM_OBS
+#define MCU_REPLAY_RTCM_OBS 0
+#endif
+
+/*
+ * 0（默认，本工程 Release/Debug 已写死）：仅用 pntpos 做单点解（SPP），串口 $PRTK 输出经纬度。
+ * 1：有基站 MSM 时走 rtkpos 差分（需改 .cproject 去掉 MCU_SOLVE_RTK=0 并改为 1 后全量重编）。
+ */
+#ifndef MCU_SOLVE_RTK
+#define MCU_SOLVE_RTK 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

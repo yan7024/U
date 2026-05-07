@@ -109,10 +109,10 @@ extern int init_rtcm(rtcm_t *rtcm)
     {
 #if defined(RTKLIB_EMBEDDED)
         /*
-         * decode_type1019 stores at nav.eph[sat-1] with sat=1..NSATGPS.
-         * ne=8 was buffer overrun for PRN>8 and silently broke ephemeris + merging.
+         * Ephemeris indexed by sat-1 (1..MAXSAT). ne=NSATGPS was GPS-only and overran
+         * when decoding BeiDou/Galileo RTCM into the same buffer (DENACMP / multi-const).
          */
-        int ne = NSATGPS;
+        int ne = MAXSAT;
         int ng = 1; /* no GLONASS in embedded profile */
 #else
         int ne = MAXSAT * 2;
@@ -128,7 +128,7 @@ extern int init_rtcm(rtcm_t *rtcm)
     }
     rtcm->obs.n=0;
 #if defined(RTKLIB_EMBEDDED)
-    rtcm->nav.n = NSATGPS;
+    rtcm->nav.n = MAXSAT;
 #else
     rtcm->nav.n=MAXSAT*2;
 #endif

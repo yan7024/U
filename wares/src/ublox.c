@@ -78,6 +78,28 @@
 *-----------------------------------------------------------------------------*/
 #include "rtklib.h"
 
+#if defined(STM32_PLATFORM)
+/* Embedded UBX diagnostics (no heap); see rtklib_ubx_diag_snapshot in rtklib.h */
+static uint32_t g_ubx_frm_ck_ok;
+static uint32_t g_ubx_frm_ck_err;
+static uint32_t g_ubx_len_err;
+static uint16_t g_ubx_last_err_type;
+static uint16_t g_ubx_last_err_len;
+static uint32_t g_ubx_ok_rawx;
+static uint32_t g_ubx_ok_sfrbx;
+static uint32_t g_ubx_ok_nav_pvt;
+static uint32_t g_ubx_ok_nav_timegps;
+static uint32_t g_ubx_sfrbx_gps;
+static uint8_t g_gps_sfmask[32];
+static uint8_t g_last_gps_sat;
+static uint8_t g_last_gps_prn;
+static uint8_t g_last_sf_id;
+static uint32_t g_ubx_eph_dec;
+static uint32_t g_ubx_dfrm_fail;
+static uint32_t g_ubx_sf_id_err;
+static uint32_t g_ubx_cnav_unsup;
+#endif
+
 #define UBXSYNC1    0xB5        /* ubx message sync code 1 */
 #define UBXSYNC2    0x62        /* ubx message sync code 2 */
 #define UBXCFG      0x06        /* ubx message cfg-??? */
@@ -756,7 +778,12 @@ static int decode_eph(raw_t *raw, int sat)
 {
     eph_t eph={0};
     
-    if (!decode_frame(raw->subfrm[sat-1],&eph,NULL,NULL,NULL)) return 0;
+    if (!decode_frame(raw->subfrm[sat-1],&eph,NULL,NULL,NULL)) {
+#if defined(STM32_PLATFORM)
+        g_ubx_dfrm_fail++;
+#endif
+        return 0;
+    }
     
     if (!strstr(raw->opt,"-EPHALL")) {
         if (eph.iode==raw->nav.eph[sat-1].iode&&
@@ -768,6 +795,9 @@ static int decode_eph(raw_t *raw, int sat)
     raw->nav.eph[sat-1]=eph;
     raw->ephsat=sat;
     raw->ephset=0;
+#if defined(STM32_PLATFORM)
+    g_ubx_eph_dec++;
+#endif
     return 2;
 }
 /* decode GPS/QZSS ION/UTC parameters ----------------------------------------*/
@@ -776,7 +806,12 @@ static int decode_ionutc(raw_t *raw, int sat)
     double ion[8],utc[8];
     int sys=satsys(sat,NULL);
     
-    if (!decode_frame(raw->subfrm[sat-1],NULL,NULL,ion,utc)) return 0;
+    if (!decode_frame(raw->subfrm[sat-1],NULL,NULL,ion,utc)) {
+#if defined(STM32_PLATFORM)
+        g_ubx_dfrm_fail++;
+#endif
+        return 0;
+    }
     
     adj_utcweek(raw->time,utc);
     if (sys==SYS_QZS) {
@@ -800,6 +835,9 @@ static int decode_nav(raw_t *raw, int sat, int off)
         return -1;
     }
     if ((U4(p)>>24)==PREAMB_CNAV) {
+#if defined(STM32_PLATFORM)
+        g_ubx_cnav_unsup++;
+#endif
         trace(3,"ubx rxmsfrbx nav unsupported sat=%d len=%d\n",sat,raw->len);
         return 0;
     }
@@ -808,11 +846,28 @@ static int decode_nav(raw_t *raw, int sat, int off)
     }
     id=getbitu(buff,43,3);
     if (id<1||id>5) {
+#if defined(STM32_PLATFORM)
+        g_ubx_sf_id_err++;
+#endif
         trace(2,"ubx rxmsfrbx nav subframe id error: sat=%d id=%d\n",sat,id);
         return -1;
     }
     memcpy(raw->subfrm[sat-1]+(id-1)*30,buff,30);
-    
+#if defined(STM32_PLATFORM)
+    {
+        int prn = 0;
+        int sys = satsys(sat, &prn);
+        if (sys == SYS_GPS && prn >= 1 && prn <= 32) {
+            if (id >= 1 && id <= 3) {
+                g_gps_sfmask[prn - 1] |= (uint8_t)(1u << (id - 1));
+            }
+            g_last_gps_sat = (uint8_t)sat;
+            g_last_gps_prn = (uint8_t)prn;
+            g_last_sf_id = (uint8_t)id;
+        }
+    }
+#endif
+
     if (id==3) {
         return decode_eph(raw,sat);
     }
@@ -1059,7 +1114,11 @@ static int decode_rxmsfrbx(raw_t *raw)
         prn-=10;
     }
     switch (sys) {
-        case SYS_GPS: return decode_nav (raw,sat,8);
+        case SYS_GPS:
+#if defined(STM32_PLATFORM)
+            g_ubx_sfrbx_gps++;
+#endif
+            return decode_nav (raw,sat,8);
         case SYS_QZS: return decode_nav (raw,sat,8);
         case SYS_GAL: return decode_enav(raw,sat,8);
         case SYS_CMP: return decode_cnav(raw,sat,8);
@@ -1143,17 +1202,41 @@ static int decode_ubx(raw_t *raw)
     
     /* checksum */
     if (!checksum(raw->buff,raw->len)) {
+#if defined(STM32_PLATFORM)
+        g_ubx_frm_ck_err++;
+        g_ubx_last_err_type = (uint16_t)type;
+        g_ubx_last_err_len = (uint16_t)(raw->len > 65535 ? 65535 : raw->len);
+#endif
         trace(2,"ubx checksum error: type=%04x len=%d\n",type,raw->len);
         return -1;
     }
+#if defined(STM32_PLATFORM)
+    g_ubx_frm_ck_ok++;
+#endif
     switch (type) {
         case ID_RXMRAW  : return decode_rxmraw  (raw);
-        case ID_RXMRAWX : return decode_rxmrawx (raw);
+        case ID_RXMRAWX :
+#if defined(STM32_PLATFORM)
+            g_ubx_ok_rawx++;
+#endif
+            return decode_rxmrawx (raw);
         case ID_RXMSFRB : return decode_rxmsfrb (raw);
-        case ID_RXMSFRBX: return decode_rxmsfrbx(raw);
+        case ID_RXMSFRBX:
+#if defined(STM32_PLATFORM)
+            g_ubx_ok_sfrbx++;
+#endif
+            return decode_rxmsfrbx(raw);
         case ID_NAVSOL  : return decode_navsol  (raw);
-        case ID_NAVPVT  : return decode_navpvt  (raw);
-        case ID_NAVTIME : return decode_navtime (raw);
+        case ID_NAVPVT  :
+#if defined(STM32_PLATFORM)
+            g_ubx_ok_nav_pvt++;
+#endif
+            return decode_navpvt  (raw);
+        case ID_NAVTIME :
+#if defined(STM32_PLATFORM)
+            g_ubx_ok_nav_timegps++;
+#endif
+            return decode_navtime (raw);
         case ID_TRKMEAS : return decode_trkmeas (raw);
         case ID_TRKD5   : return decode_trkd5   (raw);
         case ID_TRKSFRBX: return decode_trksfrbx(raw);
@@ -1212,6 +1295,11 @@ extern int input_ubx(raw_t *raw, uint8_t data)
     
     if (raw->nbyte==6) {
         if ((raw->len=U2(raw->buff+4)+8)>MAXRAWLEN) {
+#if defined(STM32_PLATFORM)
+            g_ubx_len_err++;
+            g_ubx_last_err_type = (uint16_t)((U1(raw->buff+2)<<8)+U1(raw->buff+3));
+            g_ubx_last_err_len = (uint16_t)(raw->len > 65535 ? 65535 : raw->len);
+#endif
             trace(2,"ubx length error: len=%d\n",raw->len);
             raw->nbyte=0;
             return -1;
@@ -1411,3 +1499,43 @@ extern int gen_ubx(const char *msg, uint8_t *buff)
     trace(5,"gen_ubx: buff=\n"); traceb(5,buff,n);
     return n;
 }
+
+#if defined(STM32_PLATFORM)
+void rtklib_ubx_diag_snapshot(rtklib_ubx_diag_t *d)
+{
+    uint8_t prn;
+
+    if (d == NULL) {
+        return;
+    }
+    memset(d, 0, sizeof(*d));
+    d->frm_ck_ok = g_ubx_frm_ck_ok;
+    d->frm_ck_err = g_ubx_frm_ck_err;
+    d->frm_len_err = g_ubx_len_err;
+    d->ok_rawx = g_ubx_ok_rawx;
+    d->ok_sfrbx = g_ubx_ok_sfrbx;
+    d->ok_nav_pvt = g_ubx_ok_nav_pvt;
+    d->ok_nav_timegps = g_ubx_ok_nav_timegps;
+    d->sfrbx_gps = g_ubx_sfrbx_gps;
+    d->eph_dec = g_ubx_eph_dec;
+    d->dfrm_fail = g_ubx_dfrm_fail;
+    d->sf_id_err = g_ubx_sf_id_err;
+    d->cnav_unsup = g_ubx_cnav_unsup;
+    d->last_err_type = g_ubx_last_err_type;
+    d->last_err_len = g_ubx_last_err_len;
+    d->last_gps_sat = g_last_gps_sat;
+    d->last_gps_prn = g_last_gps_prn;
+    d->last_sf_id = g_last_sf_id;
+    prn = g_last_gps_prn;
+    if (prn >= 1 && prn <= 32) {
+        d->sf_mask = (uint8_t)(g_gps_sfmask[prn - 1] & 7u);
+    }
+}
+#else
+void rtklib_ubx_diag_snapshot(rtklib_ubx_diag_t *d)
+{
+    if (d != NULL) {
+        memset(d, 0, sizeof(*d));
+    }
+}
+#endif
