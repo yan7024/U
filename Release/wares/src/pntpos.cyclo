@@ -1,5 +1,6 @@
-../wares/src/pntpos.c:58:15:gettgd	10
-../wares/src/pntpos.c:179:12:ionocorr	7
-../wares/src/pntpos.c:221:12:tropcorr	5
-../wares/src/pntpos.c:380:12:estpos	87
-../wares/src/pntpos.c:620:12:pntpos	38
+../wares/src/pntpos.c:82:15:gettgd	10
+../wares/src/pntpos.c:50:6:rtklib_pntpos_diag_snapshot	2
+../wares/src/pntpos.c:203:12:ionocorr	7
+../wares/src/pntpos.c:245:12:tropcorr	5
+../wares/src/pntpos.c:462:12:estpos	88
+../wares/src/pntpos.c:702:12:pntpos	45

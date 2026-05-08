@@ -98,6 +98,14 @@ static uint32_t g_ubx_eph_dec;
 static uint32_t g_ubx_dfrm_fail;
 static uint32_t g_ubx_sf_id_err;
 static uint32_t g_ubx_cnav_unsup;
+static uint8_t g_last_eph_prn;
+static uint16_t g_last_eph_week;
+static uint32_t g_last_eph_toe;
+static uint32_t g_last_eph_toc;
+static uint32_t g_last_eph_A10;
+static int16_t g_last_eph_iode;
+static int16_t g_last_eph_iodc;
+static int16_t g_last_eph_svh;
 #endif
 
 #define UBXSYNC1    0xB5        /* ubx message sync code 1 */
@@ -773,6 +781,46 @@ static void adj_utcweek(gtime_t time, double *utc)
     if      (utc[5]<utc[3]-127) utc[5]+=256.0;
     else if (utc[5]>utc[3]+127) utc[5]-=256.0;
 }
+/* align decoded GPS/QZSS broadcast eph week to current RAWX/NAV-PVT time -----*/
+static void align_eph_week_to_rawtime(const raw_t *raw, eph_t *eph)
+{
+    gtime_t toe_new, tref;
+    int ref_week, best_week, cand_week;
+    int k;
+    double toes, dt, best_abs, dshift, tow_ref;
+
+    if (raw == NULL || eph == NULL) return;
+    tref = raw->time;
+    if (tref.time == 0) return;
+
+    tow_ref = time2gpst(tref, &ref_week);
+    if (ref_week < 1024 || tow_ref < -1.0 || tow_ref > 604801.0) return;
+
+    toes = eph->toes;
+    if (!(toes == toes) || toes < 0.0 || toes > 604800.0) return;
+
+    best_week = ref_week;
+    toe_new = gpst2time(best_week, toes);
+    best_abs = fabs(timediff(toe_new, tref));
+
+    for (k = -1; k <= 1; k++) {
+        cand_week = ref_week + k;
+        if (cand_week < 0) continue;
+        toe_new = gpst2time(cand_week, toes);
+        dt = fabs(timediff(toe_new, tref));
+        if (dt < best_abs) {
+            best_abs = dt;
+            best_week = cand_week;
+        }
+    }
+
+    toe_new = gpst2time(best_week, toes);
+    dshift = timediff(toe_new, eph->toe);
+    eph->toe = toe_new;
+    eph->toc = timeadd(eph->toc, dshift);
+    eph->ttr = timeadd(eph->ttr, dshift);
+    eph->week = best_week;
+}
 /* decode GPS/QZSS ephemeris -------------------------------------------------*/
 static int decode_eph(raw_t *raw, int sat)
 {
@@ -784,6 +832,8 @@ static int decode_eph(raw_t *raw, int sat)
 #endif
         return 0;
     }
+
+    align_eph_week_to_rawtime(raw, &eph);
     
     if (!strstr(raw->opt,"-EPHALL")) {
         if (eph.iode==raw->nav.eph[sat-1].iode&&
@@ -797,6 +847,23 @@ static int decode_eph(raw_t *raw, int sat)
     raw->ephset=0;
 #if defined(STM32_PLATFORM)
     g_ubx_eph_dec++;
+    {
+        int prn = 0;
+        int wk = 0;
+        double tow;
+
+        (void)satsys(sat, &prn);
+        tow = time2gpst(eph.toe, &wk);
+        g_last_eph_prn = (uint8_t)((prn >= 0 && prn <= 255) ? prn : 0);
+        g_last_eph_week = (uint16_t)((wk >= 0 && wk <= 65535) ? wk : 0);
+        g_last_eph_toe = (uint32_t)((tow >= 0.0) ? (tow + 0.5) : 0.0);
+        tow = time2gpst(eph.toc, &wk);
+        g_last_eph_toc = (uint32_t)((tow >= 0.0) ? (tow + 0.5) : 0.0);
+        g_last_eph_A10 = (uint32_t)((eph.A >= 0.0) ? (eph.A / 10.0 + 0.5) : 0.0);
+        g_last_eph_iode = (int16_t)eph.iode;
+        g_last_eph_iodc = (int16_t)eph.iodc;
+        g_last_eph_svh = (int16_t)eph.svh;
+    }
 #endif
     return 2;
 }
@@ -1530,6 +1597,14 @@ void rtklib_ubx_diag_snapshot(rtklib_ubx_diag_t *d)
     if (prn >= 1 && prn <= 32) {
         d->sf_mask = (uint8_t)(g_gps_sfmask[prn - 1] & 7u);
     }
+    d->eph_prn = g_last_eph_prn;
+    d->eph_week = g_last_eph_week;
+    d->eph_toe = g_last_eph_toe;
+    d->eph_toc = g_last_eph_toc;
+    d->eph_A10 = g_last_eph_A10;
+    d->eph_iode = g_last_eph_iode;
+    d->eph_iodc = g_last_eph_iodc;
+    d->eph_svh = g_last_eph_svh;
 }
 #else
 void rtklib_ubx_diag_snapshot(rtklib_ubx_diag_t *d)

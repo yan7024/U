@@ -44,6 +44,12 @@
  * RINEX 回放：仅在编译选项中加 MCU_REPLAY_RTCM_OBS=1，并断开 F9P USART1；见 tools/replay_rtcm_to_mcu.py。
  */
 /* USER CODE END PD */
+/*
+ * Default route:
+ * - USART1 = F9P UBX (RAWX + SFRBX + NAV-PVT) -> pure single-link SPP.
+ * - USART3 = debug text output by default, not required for SPP.
+ * - Enable USART3 RTCM only when MCU_USE_USART3_RTCM=1 or replay/RTK build is desired.
+ */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
@@ -149,13 +155,16 @@ int main(void)
 
       s_uart1_hb_pulse_seen++;
       n = snprintf(buf, sizeof(buf),
-                   "$HB,t=%lu,r1=%lu,r2=%lu,u=%lu,p2=%lu,p1=%lu\r\n",
+                   "$HB,t=%lu,r1=%lu,u=%lu,dbg=%s,rtcm=%d\r\n",
                    (unsigned long)HAL_GetTick(),
                    (unsigned long)rtklib_serial_get_rx1_total(),
-                   (unsigned long)rtklib_serial_get_rx2_total(),
                    (unsigned long)rtklib_serial_get_ubx_sync_total(),
-                   (unsigned long)rtklib_serial_get_rtcm_preamble_total(),
-                   (unsigned long)rtklib_serial_get_rtcm_preamble_uart1_total());
+#if RTK_DEBUG_PORT_UART1
+                   "U1",
+#else
+                   "U3+U2",
+#endif
+                   MCU_USE_USART3_RTCM);
       if (n > 0 && n < (int)sizeof(buf)) {
         rtklib_port_debug_send((const uint8_t *)buf, (uint16_t)n);
       }

@@ -1,5 +1,6 @@
-../wares/src/pntpos.c:58:15:gettgd	24	static
-../wares/src/pntpos.c:179:12:ionocorr	104	static
-../wares/src/pntpos.c:221:12:tropcorr	72	static
-../wares/src/pntpos.c:380:12:estpos	1224	static
-../wares/src/pntpos.c:620:12:pntpos	4064	static
+../wares/src/pntpos.c:82:15:gettgd	24	static
+../wares/src/pntpos.c:50:6:rtklib_pntpos_diag_snapshot	4	static
+../wares/src/pntpos.c:203:12:ionocorr	104	static
+../wares/src/pntpos.c:245:12:tropcorr	72	static
+../wares/src/pntpos.c:462:12:estpos	1232	static
+../wares/src/pntpos.c:702:12:pntpos	4072	static

@@ -44,6 +44,30 @@
 #define REL_HUMI    0.7         /* relative humidity for Saastamoinen model */
 #define MIN_EL      (5.0*D2R)   /* min elevation for measurement error (rad) */
 
+#if defined(STM32_PLATFORM)
+static rtklib_pntpos_diag_t g_pnt_diag;
+
+void rtklib_pntpos_diag_snapshot(rtklib_pntpos_diag_t *d)
+{
+    if (d) *d = g_pnt_diag;
+}
+
+static void diag_last_sat(int sat)
+{
+    int prn = 0;
+    int sys = satsys(sat, &prn);
+
+    g_pnt_diag.lastSat = (uint8_t)((sat >= 0 && sat <= 255) ? sat : 0);
+    g_pnt_diag.lastPrn = (uint8_t)((prn >= 0 && prn <= 255) ? prn : 0);
+    g_pnt_diag.lastSys = (uint8_t)((sys >= 0 && sys <= 255) ? sys : 0);
+}
+#else
+void rtklib_pntpos_diag_snapshot(rtklib_pntpos_diag_t *d)
+{
+    if (d) memset(d, 0, sizeof(*d));
+}
+#endif
+
 /* pseudorange measurement error variance ------------------------------------*/
 static double varerr(const prcopt_t *opt, double el, int sys)
 {
@@ -258,24 +282,53 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
     dtr=x[3];
     
     ecef2pos(rr,pos);
+#if defined(STM32_PLATFORM)
+    g_pnt_diag.svhBad = 0;
+    g_pnt_diag.geoBad = 0;
+    g_pnt_diag.elBad = 0;
+    g_pnt_diag.snrBad = 0;
+    g_pnt_diag.freqBad = 0;
+    g_pnt_diag.used = 0;
+    g_pnt_diag.nv = 0;
+#endif
     
     for (i=*ns=0;i<n&&i<MAXOBS;i++) {
         vsat[i]=0; azel[i*2]=azel[1+i*2]=resp[i]=0.0;
         time=obs[i].time;
         sat=obs[i].sat;
-        if (!(sys=satsys(sat,NULL))) continue;
+        if (!(sys=satsys(sat,NULL))) {
+#if defined(STM32_PLATFORM)
+            diag_last_sat(sat);
+#endif
+            continue;
+        }
         
         /* reject duplicated observation data */
         if (i<n-1&&i<MAXOBS-1&&sat==obs[i+1].sat) {
             trace(2,"duplicated obs data %s sat=%d\n",time_str(time,3),sat);
+#if defined(STM32_PLATFORM)
+            diag_last_sat(sat);
+#endif
             i++;
             continue;
         }
         /* excluded satellite? */
-        if (satexclude(sat,vare[i],svh[i],opt)) continue;
+        if (satexclude(sat,vare[i],svh[i],opt)) {
+#if defined(STM32_PLATFORM)
+            if (svh[i] != 0) g_pnt_diag.svhBad++;
+            diag_last_sat(sat);
+#endif
+            continue;
+        }
         
         /* geometric distance */
-        if ((r=geodist(rs+i*6,rr,e))<=0.0) continue;
+        if ((r=geodist(rs+i*6,rr,e))<=0.0) {
+#if defined(STM32_PLATFORM)
+            g_pnt_diag.geoBad++;
+            diag_last_sat(sat);
+#endif
+            continue;
+        }
 
         /* iter==0 skips iono/trop block below but still uses these in v[]/var[] */
         dion = dtrp = 0.0;
@@ -283,16 +336,34 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
 
         if (iter>0) {
             /* test elevation mask */
-            if (satazel(pos,e,azel+i*2)<opt->elmin) continue;
+            if (satazel(pos,e,azel+i*2)<opt->elmin) {
+#if defined(STM32_PLATFORM)
+                g_pnt_diag.elBad++;
+                diag_last_sat(sat);
+#endif
+                continue;
+            }
             
             /* test SNR mask */
-            if (!snrmask(obs+i,azel+i*2,opt)) continue;
+            if (!snrmask(obs+i,azel+i*2,opt)) {
+#if defined(STM32_PLATFORM)
+                g_pnt_diag.snrBad++;
+                diag_last_sat(sat);
+#endif
+                continue;
+            }
             
             /* ionospheric correction */
             if (!ionocorr(time,nav,sat,pos,azel+i*2,opt->ionoopt,&dion,&vion)) {
                 continue;
             }
-            if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) continue;
+            if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) {
+#if defined(STM32_PLATFORM)
+                g_pnt_diag.freqBad++;
+                diag_last_sat(sat);
+#endif
+                continue;
+            }
             dion*=SQR(FREQ1/freq);
             vion*=SQR(FREQ1/freq);
             
@@ -302,7 +373,12 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
             }
         }
         /* psendorange with code bias correction */
-        if ((P=prange(obs+i,nav,opt,&vmeas))==0.0) continue;
+        if ((P=prange(obs+i,nav,opt,&vmeas))==0.0) {
+#if defined(STM32_PLATFORM)
+            diag_last_sat(sat);
+#endif
+            continue;
+        }
         
         /* pseudorange residual */
         v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
@@ -322,6 +398,9 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         else mask[0]=1;
         
         vsat[i]=1; resp[i]=v[nv]; (*ns)++;
+#if defined(STM32_PLATFORM)
+        g_pnt_diag.used++;
+#endif
         
         /* variance of pseudorange error */
         var[nv++]=varerr(opt,azel[1+i*2],sys)+vare[i]+vmeas+vion+vtrp;
@@ -336,6 +415,9 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         for (j=0;j<NX;j++) H[j+nv*NX]=j==i+3?1.0:0.0;
         var[nv++]=0.01;
     }
+#if defined(STM32_PLATFORM)
+    g_pnt_diag.nv = (uint16_t)((nv >= 0 && nv <= 65535) ? nv : 65535);
+#endif
     return nv;
 }
 /* validate solution ---------------------------------------------------------*/
@@ -644,6 +726,22 @@ extern int pntpos(const obsd_t *obs, int n, const nav_t *nav,
     }
     /* satellite positons, velocities and clocks */
     satposs(sol->time,obs,n,nav,opt_.sateph,rs,dts,var,svh);
+#if defined(STM32_PLATFORM)
+    memset(&g_pnt_diag, 0, sizeof(g_pnt_diag));
+    g_pnt_diag.nObs = (uint16_t)((n >= 0 && n <= 65535) ? n : 65535);
+    for (i = 0; i < n && i < MAXOBS; i++) {
+        if (obs[i].P[0] != 0.0) {
+            g_pnt_diag.p0ok++;
+        }
+        if (rs[i * 6] != 0.0 || rs[i * 6 + 1] != 0.0 || rs[i * 6 + 2] != 0.0) {
+            if (svh[i] >= 0) g_pnt_diag.satposOk++;
+            else g_pnt_diag.noEph++;
+        } else {
+            g_pnt_diag.noEph++;
+            diag_last_sat(obs[i].sat);
+        }
+    }
+#endif
     
     /* estimate receiver position with pseudorange */
     stat=estpos(obs,n,rs,dts,var,svh,nav,&opt_,sol,azel_,vsat,resp,msg);

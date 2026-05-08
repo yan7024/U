@@ -1700,9 +1700,36 @@ typedef struct {
     uint8_t last_gps_prn;  /* 1..32 */
     uint8_t last_sf_id;    /* 1..5 */
     uint8_t sf_mask;       /* 对 last_gps_prn：bit0=SF1, bit1=SF2, bit2=SF3 已收齐标记 */
+    uint8_t eph_prn;
+    uint16_t eph_week;
+    uint32_t eph_toe;
+    uint32_t eph_toc;
+    uint32_t eph_A10;
+    int16_t eph_iode;
+    int16_t eph_iodc;
+    int16_t eph_svh;
 } rtklib_ubx_diag_t;
 
 EXPORT void rtklib_ubx_diag_snapshot(rtklib_ubx_diag_t *d);
+
+typedef struct {
+    uint16_t nObs;
+    uint16_t satposOk;
+    uint16_t noEph;
+    uint16_t svhBad;
+    uint16_t p0ok;
+    uint16_t geoBad;
+    uint16_t elBad;
+    uint16_t snrBad;
+    uint16_t freqBad;
+    uint16_t used;
+    uint16_t nv;
+    uint8_t lastSat;
+    uint8_t lastPrn;
+    uint8_t lastSys;
+} rtklib_pntpos_diag_t;
+
+EXPORT void rtklib_pntpos_diag_snapshot(rtklib_pntpos_diag_t *d);
 
 EXPORT int input_ss2   (raw_t *raw, uint8_t data);
 EXPORT int input_cres  (raw_t *raw, uint8_t data);

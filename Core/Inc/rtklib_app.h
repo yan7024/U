@@ -4,22 +4,30 @@
 #include <stdint.h>
 
 /*
+ * Default route: one F9P UART feeds UBX RAWX + SFRBX + NAV-PVT to USART1.
+ * USART3 is debug text by default, not an RTCM dependency.
+ *
  * Debug text ($PRTKMON / $HB / $PRTK):
- *  0 — USART3 PC4/PC5: CH340 + RTCM/NTRIP + debug text; USART2 ST-Link mirrors same debug (115200).
- *  1 — USART1 PA9 (mixes with rover UBX — rarely useful).
+ *  0 = USART3 PC4/PC5, mirrored to USART2 ST-Link VCP.
+ *  1 = USART1 PA9 (shares the rover UBX link; only for special probing).
  */
 #ifndef RTK_DEBUG_PORT_UART1
 #define RTK_DEBUG_PORT_UART1 0
 #endif
 
-/* 1 = USART3 RTCM 观测回放进 rover（tools/replay_rtcm_to_mcu.py）；默认 0 = F9P UBX @ USART1 */
+/* 1 = enable USART3 RTCM/NTRIP input. Default 0 = pure F9P UBX SPP. */
+#ifndef MCU_USE_USART3_RTCM
+#define MCU_USE_USART3_RTCM 0
+#endif
+
+/* 1 = copy USART3 RTCM observations into rover obs for replay tests. */
 #ifndef MCU_REPLAY_RTCM_OBS
 #define MCU_REPLAY_RTCM_OBS 0
 #endif
 
 /*
- * 0（默认，本工程 Release/Debug 已写死）：仅用 pntpos 做单点解（SPP），串口 $PRTK 输出经纬度。
- * 1：有基站 MSM 时走 rtkpos 差分（需改 .cproject 去掉 MCU_SOLVE_RTK=0 并改为 1 后全量重编）。
+ * 0 = SPP by pntpos() and publish $PRTK latitude/longitude/height.
+ * 1 = RTK by rtkpos(); requires base RTCM and a full rebuild.
  */
 #ifndef MCU_SOLVE_RTK
 #define MCU_SOLVE_RTK 0
